@@ -2,30 +2,9 @@ import cv2
 import sys
 import os.path
 import numpy as np
+import networkx  as nx
 
-def drawMatches(img1, kp1, img2, kp2, matches):
-
-    rows1 = img1.shape[0]
-    cols1 = img1.shape[1]
-    rows2 = img2.shape[0]
-    cols2 = img2.shape[1]
-
-    out = np.zeros((max([rows1,rows2]),cols1+cols2,3), dtype='uint8')
-    out[:rows1,:cols1] = np.dstack([img1])
-    out[:rows2,cols1:] = np.dstack([img2])
-    for mat in matches:
-        img1_idx = mat.queryIdx
-        img2_idx = mat.trainIdx
-        (x1,y1) = kp1[img1_idx].pt
-        (x2,y2) = kp2[img2_idx].pt
-
-        cv2.circle(out, (int(x1),int(y1)), 4, (255, 0, 0, 1), 1)   
-        cv2.circle(out, (int(x2)+cols1,int(y2)), 4, (255, 0, 0, 1), 1)
-        cv2.line(out, (int(x1),int(y1)), (int(x2)+cols1,int(y2)), (255, 0, 0, 1), 1)
-
-    return out
-
-def compare(filename1, filename2):
+def are_images_similar(filename1, filename2):
     img1 = cv2.imread(filename1)          # queryImage
     img2 = cv2.imread(filename2)          # trainImage
 
@@ -40,18 +19,41 @@ def compare(filename1, filename2):
     bf = cv2.BFMatcher()
     matches = bf.match(des1,des2)
 
-    matches = sorted(matches, key=lambda val: val.distance)
+	# if len(matches) > threshold ; True
+	threshold = 20
+	if len(matches) > threshold:
+		return True
+	return False
 
-    img3 = drawMatches(img1,kp1,img2,kp2,matches[:25])
+def compute_shot_similarity_graph(shots_arr):
 
-    # Show the image
-    cv2.imshow('Matched Features', img3)
-    cv2.waitKey(0)
-    cv2.destroyWindow('Matched Features')
+	#Add cache load here.
+	lookahead = 24
+	G = nx.Graph()
+	#Add nodes in the graph - no of shots.
+	G.add_nodes_from(list(range(n_shots)))
+	
+	#For each shot k, k+1,k+r
+	n_shots = shots_arr.shape[0]
+	for k in range(n_shots):
+		for r in range(1,lookahead+1):
+			last_of_first = shots_arr[k,1]
+			first_of_second = shots_arr[k+r,0]
 
-#if len(sys.argv) != 3:
-#    sys.stderr.write("usage: compare.py <queryImageFile> <sourceImageFile>\n")
-#    sys.exit(-1)
-path1 = '/home/harsha/Video_ShotThread_SceneDetect/data/bbt_s01e01_excerpt/bbt_s01e01_000258.jpg'
-path2 = '/home/harsha/Video_ShotThread_SceneDetect/data/bbt_s01e01_excerpt/bbt_s01e01_000259.jpg'    
-compare(path1,path2)
+			#Those are frame numbers, compute filenames from this.
+			f1 = 'bbt_s01e01_'+str(last_of_first).zfill(6)+'.jpg'
+			f1 = os.path.join('../data',f1)
+			
+			f2 = 'bbt_s01e01_'+str(first_of_second).zfill(6)+'.jpg'
+			f2 = os.path.join('../data',f2)
+			
+			decision = are_images_similar(f1,f2)
+			if decision == True:
+				G.add_edge(k,k+r)
+				G.add_edge(k+r,k)
+	
+	return G
+
+if __name__ == '___main__':
+	#Get shots_arr from shot_boundary_detection
+	compute_shot_similarity_graph(shots_arr)
