@@ -17,15 +17,15 @@ def compute_dp_matrices(all_rep, shot_threading_sa):
     nbins = 6**3 
 
     D_cube = np.zeros([nr+1,nc+1,n_layers+1])
-    idx_cube = np.zeros([nr+1,nc+1,n_layers+1])
+    I_cube = np.zeros([nr+1,nc+1,n_layers+1])
     
     #Create a hashmap for storing colorbased shot similarity scores
     hashmap = {}
 
-    #Initialization of dtw_cube must be done properly.
-    D[:,1,1].fill(1) #Should all ones 
+    #Initialization of D_cube must be done properly.
+    D_cube[:,1,1].fill(1) #Should all ones 
     
-    #For Nsc = 1. dtw_cube must be filled accordingly. 
+    #For Nsc = 1. D_cube must be filled accordingly. 
     for j in range(2,min(nc+1,nlayers+1)):
         k = j
         same_scene_score = 0
@@ -54,7 +54,7 @@ def compute_dp_matrices(all_rep, shot_threading_sa):
 
         same_scene_score = alpha[k]*(same_scene_score + threading_factor)
         D_cube[i,j,k] = D_cube[i,j-1,k-1]+same_scene_score
-        idx_cube[i,j,k] = np.ravel_multi_index([[i],[j-1],[k-1]],D_cube.shape)
+        I_cube[i,j,k] = np.ravel_multi_index([[i],[j-1],[k-1]],D_cube.shape)
         
     for i in range(2,nr+1):
         for j in range(2,nc):
@@ -94,7 +94,7 @@ def compute_dp_matrices(all_rep, shot_threading_sa):
                             max_loc = loc
                         
                     D_cube[i,j,k] = max_score
-                    idx_cube[i,j,k] = np.ravel_multi_index([[i-1],[j-1],[max_loc]],D_cube.shape)
+                    I_cube[i,j,k] = np.ravel_multi_index([[i-1],[j-1],[max_loc]],D_cube.shape)
 
                 else: #k-1 shots are in the same scene as me. 
                     this_shot = j-1
@@ -118,15 +118,42 @@ def compute_dp_matrices(all_rep, shot_threading_sa):
                     
                     same_scene_score = alpha[k]*(same_scene_score + threading_factor)
                     D_cube[i,j,k] = D_cube[i,j-1,k-1]+same_scene_score
-                    idx_cube[i,j,k] = np.ravel_multi_index([[i],[j-1],[k-1]],D_cube.shape)
+                    I_cube[i,j,k] = np.ravel_multi_index([[i],[j-1],[k-1]],D_cube.shape)
             print("No of shots",j)
         print("No of scenes,",i) 
  
-    return D_cube,idx_cube
+    return D_cube,I_cube
 
 def get_scene_bounds(all_rep,shot_SA ): 
     D_cube, I_cube = compute_dp_matrices(all_rep, shot_SA)
- 
+     
+    #Find the number of scenes if not specified
+    if n_scenes == None: #Two methods to detect the scenes
+        #Method 1 : From Threshold
+        threshold = 0.8
+        vec = np.max(D_cube[:,-1,:],axis =1)
+        diffs = np.diff(vec)
+        n_scenes = np.argwhere(diffs<threshold)[0][0]+1    
+    n_shots = len(all_rep)
+    #Do backtracking to find scene boundaries
+    ii = n_scenes+1
+    jj = n_shots +1
+    kk = np.argmax(D_cube[ii-1,jj-1,:])+1
+    path = [[ii-1,jj-1,kk,D_cube[ii-1,jj-1,kk-1]]]
+    while ii>1 and jj>1:
+        loc = I_cube[ii-1,jj-1,kk-1] 
+        if not loc:
+            break
+        ii,jj,kk = np.unravel_index(loc,D_cube.shape,'F')
+        path.insert(0,[ii-1,jj-1,kk,D_cube[ii-1,jj-1,kk]])
+    for k in range(len(path)):
+        if len(scene_bounds) != path[k][1]:
+            scene_bounds = [scene_bounds,k]
+    scene_bounds = np.array(scene_bounds)
+    
+    return D_cube,I_cube, scene_bounds
+
+     
 if __name__ == '__main__' :
     shots_arr = get_shots_arr_from_file()
     all_rep = all_shots_representation(shots_arr)
@@ -134,4 +161,4 @@ if __name__ == '__main__' :
     #sim = sift_shot_similarity(shots_arr)
     #_, shot_threading_sa = similarity_to_threads(sim)
     shot_threading_sa = np.load('../outputs/BBT_S1_ep1_shot_threading_sa.npy')
-    scene_boundaries = get_scene_bounds(all_rep,shot_threading_sa[0]) 
+    D_cube, I_cube, scene_boundaries = get_scene_bounds(all_rep,shot_threading_sa[0]) 
