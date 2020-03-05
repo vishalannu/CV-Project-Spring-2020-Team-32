@@ -16,7 +16,7 @@ def mean_rgb_hist_single_shot(shot_st_frame,shot_en_frame):
         img = cv2.imread(filename)
         #Each pixel has rgb value - which determines which bin it goes into
         cl_hist = np.zeros([n_bins,n_bins,n_bins]) 
-  	    
+        
         for i in range(img.shape[0]):
             for j in range(img.shape[1]):
                 b = img[i,j,0]
@@ -42,4 +42,34 @@ def mean_rgb_hist_single_shot(shot_st_frame,shot_en_frame):
     
     return mean_rgb_hist
 
+def all_shots_representation(shots_arr):
+
+    outfile = '../outputs/BBT_S1_ep1_shot_hist.npy'
+    if os.path.exists(outfile) and os.path.isfile(outfile):
+        #saved representation exists read that and return 
+        all_rep = np.load(outfile)
+        return all_rep
+
+    all_rep = []
+    for i in range(len(shots_arr)):
+        st = shots_arr[i,0]
+        en = shots_arr[i,1]
+        shot_i_rep = mean_rgb_hist_single_shot(st,en)
+        all_rep.append(shot_i_rep) 
+
+    all_rep = np.array(all_rep)
+    np.save(outfile,all_rep)
+    return all_rep
+
+def visualise_shots_rep(all_rep):
+    pass
+
+
+if __name__ == '__main__':
+    shots_arr = get_shots_arr_from_file()
+    all_rep = all_shots_representation(shots_arr)
+    visualise_shots_rep(all_rep)
+    print("END")
+    
+    
     
