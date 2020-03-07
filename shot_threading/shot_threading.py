@@ -98,7 +98,15 @@ def compute_shot_similarity_graph(shots_arr):
 	np.save(sim_path,np.array(G1.todense()))
 	return G
 
-def transitive_cliques(Sim_Graph):
+def similarity_to_threads(Sim_Graph):
+	
+	#Load from cache if present
+	movie_name = 'BBT_S1_ep1'
+	shots_file = movie_name+'_shot_threading_sa.npy'
+	if os.path.exists(shots_file) and os.path.isfile(shots_file):
+		shots_assigned = np.load(shots_file)
+		return shots_assigned
+
 	#Find maximal cliques in SimGraph
 	#if cliques overlap , apply transitivity.
 	#Repeat this for max_times = 5
@@ -127,26 +135,29 @@ def transitive_cliques(Sim_Graph):
 		#find cliqs again
 		cliqs =list(nx.find_cliques(G))
 
-	ele_in_cliq_index = [-1]*n_rows
+	ele_in_cliq_index = [0]*n_rows
 	for i in range(len(cliqs)):
 		for j in cliqs[i]:
-			ele_in_cliq_index[j] = i
-	
-	return cliqs, ele_in_cliq_index
+			ele_in_cliq_index[j] = i+1
 
-def similarity_to_threads(SimGraph):
+	shots_assigned = np.array(ele_in_cliq_index)
+	np.save(shots_file, shots_assigned)		
+	return shots_assigned
 
-	cliques = transitive_cliques(SimGraph)
+def compute_shot_threads(out_folder, input_video):
+	print("Getting the shot boundaries ...")
+	shots_arr = shots_arr_from_DFD(out_folder,input_video)
+	print("Computing Shot Similarity Graph ...")
+	G =	compute_shot_similarity_graph(shots_arr)
+	print("Applying transitivity and finding cliques ...")
+	shots_assigned = similarity_to_threads(G)
+	return shots_assigned
 
 if __name__ == '__main__':
 
 	#Get shots_arr from shot_boundary_detection
-	print("Getting the shot boundaries ...")
 	out_folder = '../../outputs/'
 	#BBT_S1_ep1.avi
 	input_video = '../../inputs/BBT_S1_ep1.avi'
-	shots_arr = shots_arr_from_DFD(out_folder,input_video)
 	print("Performing shot threading..")
-	G =	compute_shot_similarity_graph(shots_arr)
-	similarity_to_threads(G)
-
+	threads_shots_assigned = compute_shot_threads(out_folder, input_video)
