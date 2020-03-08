@@ -67,12 +67,40 @@ def compute_dfd(prev, curr, pixel_wise = False):
 	# ||curr - (prev+	optflow)||
 	#Plus divide bby rows*cols
 	
-	diff = np.abs(curr - prev)
-	diff = diff.ravel()
-	diff = np.linalg.norm(diff, ord = norm_order)
+	if pixel_wise == True:
+		diff = np.abs(curr - prev)
+		diff = diff.ravel()
+		diff = np.linalg.norm(diff, ord = norm_order)
+		diff = diff / rows*cols
+		return diff
+	
+	#Instead of pixel wise, can divide into blocks. Found better results this way. 
+	#Computed shots are closer to the real shots this way. 
+	block_size = 16
+	search_space = 16
+	diff = 0
+
+	#For each block. A=starting for that block.	, B= All blocks from [-16,16] from that point.
+	for i0 in range(0,rows,16):
+		for j0 in range(0,cols,16):
+			min_diff = float("inf")
+			start_i = max(i0-search_space,0)
+			start_j = max(j0-search_space,0)
+			
+			end_i = min(i0+search_space+1,rows-block_size)
+			end_j = min(j0+search_space+1,cols-block_size)
+			
+			for i in range(start_i,end_i):
+				for j in range(start_j,end_j):
+					#Diff between A[i0:i0+block_size,j0:j0+block_size] and 
+					A = curr[i0:i0+block_size,j0:j0+block_size]
+					B = prev[i:i+block_size,j:j+block_size]
+					d = np.abs(A-B)
+					d = np.linalg.norm(d.ravel(), ord = norm_order)
+					min_diff = min(min_diff, d)
+			diff = diff + min_diff
 	diff = diff / rows*cols
 	return diff
-	
 
 def get_DFD_array(input_video, out_folder):
 
@@ -80,16 +108,32 @@ def get_DFD_array(input_video, out_folder):
 	movie_name = movie_name.split('.')[-2]
 	dfd_path = os.path.join(out_folder,movie_name+'_dfd.npy')
 	print("Movie Name:", movie_name)
+	#Load from cache if already exists.	
+	if os.path.exists(dfd_path) and os.path.isfile(dfd_path):
+		DFD_list = np.load(dfd_path)
+		return DFD_list
 
 	inp = cv2.VideoCapture(input_video)
 	img_name = movie_name + '_'
 	frames_path = os.path.join(out_folder,'frames')
 	
+	save_frames = True			 
+	req_frames = int(inp.get(cv2.CAP_PROP_FRAME_COUNT))
+	if os.path.exists(frames_path):
+		existing_frames = len(glob.glob(os.path.join(frames_path,img_name+'*')))
+
+		if req_frames == existing_frames:	
+			save_frames = False
+	else:
+		os.mkdir(frames_path)
+
+	save_frames = False
 	
 	#Store images based on Zero-Based Indexing
 	j = 0
 	ret,current = inp.read()
-	cv2.imwrite(os.path.join(frames_path,img_name +str(j).zfill(6)+'.jpg'),current)
+	if save_frames == True:
+		cv2.imwrite(os.path.join(frames_path,img_name +str(j).zfill(6)+'.jpg'),current)
 
 	DFD_list = []
 	j = 1
@@ -100,7 +144,8 @@ def get_DFD_array(input_video, out_folder):
 		ret, current = inp.read()
 		if not ret:
 			break
-		cv2.imwrite(os.path.join(frames_path,img_name +str(j).zfill(6)+'.jpg'),current)
+		if save_frames == True:
+			cv2.imwrite(os.path.join(frames_path,img_name +str(j).zfill(6)+'.jpg'),current)
 		j=j+1
 
 		diff = compute_dfd(previous,current)
@@ -111,12 +156,24 @@ def get_DFD_array(input_video, out_folder):
 	np.save(dfd_path,DFD_list)
 	return DFD_list	
 
+parser = argparse.ArgumentParser(description="Shot Boundary Detection and Representation")
+
+parser.add_argument('--inp_file', type=str, help='Path of Input video file', required=True)
+parser.add_argument('--out_folder', type=str, help='NAME of folder to store the output files',required=True)
 
 if __name__ == '__main__' :
 
-	movie_path = input('Movie Path')
-	folder_path = input('Folder Path')
-	
+	args = parser.parse_args()
+	movie_path = args.inp_file
+	folder_path = os.path.join(os.getcwd(),args.out_folder)
+
+	print(folder_path)
+	assert os.path.exists(movie_path), 'No file exists at '+ movie_path+ '.'
+
+	if not os.path.exists(folder_path):
+		os.mkdir(folder_path)
+	assert os.path.isdir(folder_path),folder_path+ ' already exists and is not a directory. Please specify a different name.'
+
 	print('Getting DFD array ... ')
 	DFD_list = get_DFD_array(movie_path,folder_path)	
 	print('Getting Shot Boundaries array ... ')
