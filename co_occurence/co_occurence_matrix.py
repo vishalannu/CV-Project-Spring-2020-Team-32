@@ -4,8 +4,53 @@ import pandas as pd
 from scipy.stats.mstats import gmean
 from scipy.spatial.distance import squareform
 from scipy.cluster.hierarchy import linkage,optimal_leaf_ordering,leaves_list
+from losses import loss_function
+from sg_optimization import storygraph_optimization
 import matplotlib.pyplot as plt
 import sys
+from draw_graph import draw_graph
+
+def graph_initialization(num_cast, n_scenes, lin_cooc, presence):
+	#Init the indices xct
+	init_indices = np.zeros([num_cast,n_scenes])
+	init_method = 'olo_special'
+	
+	if init_method == 'alphabetical':
+		init_indices = np.arange(1,num_cast+1).reshape(num_cast,1)@np.ones([1,n_scenes])
+	elif init_method == 'olo' : #based on global co occurence
+		v = np.sum(lin_cooc,1)
+		D = 1/squareform(v)
+
+		D[np.isinf(D)] = 0
+		olo = leaves_list(optimal_leaf_ordering(linkage(D),D))
+		order = np.argsort(olo)+1
+		init_indices = order.reshape(num_cast,1)@np.ones([1,n_scenes])	
+	elif init_method == 'olo_special' : #based on special co occurence XOR based function
+		#XOR and presence based dist mat
+		dist_mat = np.zeros([num_cast,num_cast])
+		olopresence = presence
+		for ii in range(num_cast):
+			for jj in range(ii+1,num_cast):
+				sx1 = np.sum(olopresence[ii,:])	
+				sx2 = np.sum(olopresence[jj,:])	
+				x1_and_x2 = np.logical_and(olopresence[ii,:],olopresence[jj,:]) 
+				x1_xor_x2 = np.logical_xor(olopresence[ii,:],olopresence[jj,:]) 
+				
+				measure = 1- sum(x1_and_x2)/np.sqrt(sx1*sx2) + 2*sum(x1_xor_x2)/(sx1+sx2)
+				dist_mat[ii,jj] = measure
+				dist_mat[jj,ii] = measure 			
+		
+		D = squareform(dist_mat)
+		D[np.isinf(D)] = 0
+		olo = leaves_list(optimal_leaf_ordering(linkage(D),D))
+		order = np.argsort(olo)+1
+		init_indices = order.reshape(num_cast,1)@np.ones([1,n_scenes])	
+		
+	elif init_method == 'olo_random':
+		order = np.randon.permutation(np.arange(1,num_cast+1))
+		init_indices = order.reshape(num_cast,1)@np.ones([1,n_scenes])	
+
+	return init_indices
 
 def data_clean(face_data, cast_list):
 	m = np.zeros(len(face_data))
@@ -40,6 +85,40 @@ def get_cooccurence_info(block_times, ol_cast_list, ol_face_data):
 
 	#Frame Counts
 	print('Binning facetracks into '+str(n_scenes)+' scene blocks')
+	frame_counts = np.zeros([num_cast,n_scenes])
+	for i in range(n_scenes):
+		ind1 = np.argwhere(start_end_times[:,0]>=block_times[i,0])
+		ind1 = np.reshape(ind1,[ind1.shape[0],])
+		ind2 = np.argwhere(start_end_times[:,1] <= block_times[i,1])
+		ind2 = np.reshape(ind2,[ind2.shape[0],])
+		tracks_in_interval = np.intersect1d(ind1,ind2)
+		names_in_interval = np.take(names,tracks_in_interval)
+		tlengths_in_interval = np.take(track_lengths,tracks_in_interval)
+		n_inblock = np.unique(names_in_interval) #can have unknown
+		for n in n_inblock:
+			this_name_idx = np.argwhere(names_in_interval==n)#indexes in names_in_interval where n is present
+			#if n == 'howard':
+			#print("interesting",this_name_idx)
+			ind = index_names[n]
+			frame_counts[ind,i] = sum(tlengths_in_interval[this_name_idx])		
+	#Presence
+	presence = np.where(frame_counts>0, 1, 0)
+
+	#Cooccurence
+	cooc_mat = np.zeros([num_cast,num_cast,n_scenes])
+	for k in range(n_scenes):
+		for i in range(num_cast):
+			for j in range(i+1,num_cast):
+				cooc_mat[i,j,k] = gmean([frame_counts[i,k],frame_counts[j,k]])
+	#LInearize
+	u,v = np.triu_indices(num_cast,1)
+	lin_cooc = np.zeros([len(u),n_scenes])
+	for k in range(n_scenes):
+		c = cooc_mat[:,:,k]
+		lin_cooc[:,k] = c[u,v]
+
+	#Initialize the graph
+	init_indices = graph_initialization(num_cast, n_scenes, lin_cooc,presence)	
 
 
 
@@ -91,3 +170,4 @@ if __name__ == '__main__':
 
 	##############################################
 	get_cooccurence_info(block_times, cast_list, face_data)
+
