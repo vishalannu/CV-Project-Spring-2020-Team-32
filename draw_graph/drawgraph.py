@@ -3,6 +3,35 @@ import scipy as sp
 import os
 import matplotlib.pyplot as plt
 
+def mySigmoid(x,x1,x2):
+	p = 6.9068
+	a = 2*p/(x2-x1)
+	b = p* (x2+x1)/(x2-x1)
+	y = 1/(1+np.exp(-a*x+b))
+	return y
+
+def add_transition_segment(indices, ii,jj,presence, xcoord_forward_fillers):
+	sigmoid_n_points = 20
+	xc = xcoord_forward_fillers[jj,:]
+	
+	if presence[ii,jj] == presence[ii,jj+1]:
+		xcoords = np.linspace(xc[0],xc[1],sigmoid_n_points).reshape(-1)	
+		ycoords = mySigmoid(xcoords, xcoords[0], xcoords[-1])
+		ycoords = (indices[ii,jj+1] - indices[ii,jj])*ycoords
+
+	elif presence[ii,jj] and not presence[ii,jj+1]	:
+		xcoords = np.concatenate(([xc[0]],np.linspace(xc[2],xc[1],sigmoid_n_points).reshape(-1)))
+		ycoords = np.concatenate(([0],mySigmoid(xcoords[1:], xcoords[1], xcoords[-1]).reshape(-1)))
+		ycoords = (indices[ii,jj+1] - indices[ii,jj])*ycoords
+
+	elif presence[ii,jj+1]:		
+		
+		xcoords = np.concatenate((np.linspace(xc[0],xc[2],sigmoid_n_points).reshape(-1),[xc[1]]))
+		ycoords = np.concatenate((mySigmoid(xcoords[:-1], xcoords[0], xcoords[-2]).reshape(-1),[1]))
+		ycoords = (indices[ii,jj+1] - indices[ii,jj])*ycoords
+
+	return xcoords, ycoords+indices[ii,jj]
+
 def draw_graph(final_indices, block_times, presence, se_presence, cast_list):
 	#change colors to random
 	colors = ['r','g','b','c','y','m']
@@ -61,6 +90,15 @@ def draw_graph(final_indices, block_times, presence, se_presence, cast_list):
 				plt.scatter(x1,y1, color=colors[i], marker='o')
 			if n == 2:
 				plt.scatter(x2,y1, color=colors[i], marker='>')
+			if j < n_scenes -1:
+				#Add transition segment
+				m = 'dotted'
+				lw = 0.5
+				if presence[i,j] and  presence[i,j+1] == 1:
+					m = 'solid'
+					lw  = 2
+				xcoords, ycoords = add_transition_segment(final_indices,i,j,presence,xcoord_forward_fillers)
+				plt.plot(xcoords,ycoords, color=colors[i], linestyle=m, linewidth=lw)
 			
 			n = 1
 	plt.legend()
