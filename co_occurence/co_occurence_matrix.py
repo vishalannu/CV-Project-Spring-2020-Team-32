@@ -119,7 +119,66 @@ def get_cooccurence_info(block_times, ol_cast_list, ol_face_data):
 
 	#Initialize the graph
 	init_indices = graph_initialization(num_cast, n_scenes, lin_cooc,presence)	
+	
+	#Normalize
+	norm_method = 'hysteresis'
+	if norm_method == 'each': #normalize each column to 1
+		lin_cooc = lin_cooc/np.amax(lin_cooc,axis=0)
+	elif norm_method == 'all' : #normalize max value to 1
+		lin_cooc = lin_cooc/np.amax(np.amax(lin_cooc,0))
+	elif norm_method == 'hysteresis':
+		c = np.prod(lin_cooc.shape)*lin_cooc/np.sum(np.sum(lin_cooc))
+		c2 = c
+		c2[c2>1] = 1
+		c3 = np.prod(c2.shape)*c2/np.sum(np.sum(c2))
+		lin_cooc = c3
+	elif norm_method == 'binarize':
+		lin_cooc = np.where(lin_cooc>0,1,0)
+	else:
+		print('No normalization method')
+	print("test")
 
+	lin_cooc = lin_cooc / np.amax(np.amax(lin_cooc));
+
+	#Helper functions for losses
+	col_diff_mat = None	
+	for k in range(1,num_cast+1):
+		addrows = num_cast - k
+		mid_mat = np.column_stack([np.zeros([addrows,k-1]),np.ones([addrows,1])])
+		diag_mat = np.diag(-1*np.ones(addrows))
+		new_mat = np.column_stack([mid_mat,diag_mat])
+		if col_diff_mat is None:
+			col_diff_mat = new_mat
+		else:
+			col_diff_mat = np.vstack([col_diff_mat, new_mat])
+
+	minsep_val =0.09
+
+	#Se and ALl presence
+	orig_presence = presence
+	se_presence = np.zeros_like(presence)
+	for k in range(num_cast):
+		inds = np.argwhere(presence[k,:]==1)
+		inds.sort()
+		inds = inds.reshape([inds.shape[0],])
+		if len(inds) == 1:
+			se_presence[k,inds[0]] = 1
+			continue
+		se_presence[k,inds[0]:inds[-1]+1] = 1	
+	
+	logical_col_diff_mat = np.where(col_diff_mat!=0,1,0)
+	new_se_mat = logical_col_diff_mat@se_presence
+	diff_se_presence = 	(new_se_mat == 2)
+	new_mat = logical_col_diff_mat@presence
+	diff_presence = (new_mat == 2)
+	
+	all_presence = {}
+	all_presence['orig'] = presence
+	all_presence['se'] = se_presence
+	all_presence['diff'] = diff_presence
+	all_presence['diff_se'] = diff_se_presence
+
+	return all_presence, init_indices, lin_cooc, col_diff_mat
 
 
 def get_data(out_folder, movie_name):
@@ -169,5 +228,12 @@ if __name__ == '__main__':
 	np.save('./PyData/BBT_S1_ep1_block_times.npy',block_times)
 
 	##############################################
-	get_cooccurence_info(block_times, cast_list, face_data)
-
+	all_presence, init_indices, lin_cooc, col_diff_mat = get_cooccurence_info(block_times, cast_list, face_data)
+	num_cast, n_scenes = init_indices.shape
+	presence = all_presence['orig'] 
+	se_presence = all_presence['se']
+ 
+	np.save('./PyData/BBT_S1_ep1_presence.npy',presence)
+	np.save('./PyData/BBT_S1_ep1_se_presence.npy',se_presence)
+	
+	
